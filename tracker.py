@@ -1,6 +1,7 @@
 import yaml
 import os
 import requests
+import pandas as pd
 from jobspy import scrape_jobs
 
 # 1. Load Sent History
@@ -27,39 +28,56 @@ def send_telegram(message):
 with open("config.yml", "r") as f:
     config = yaml.safe_load(f)["search"]
 
-# 3. Scrape and Filter
-all_jobs = []
-for kw in config["keywords"]:
-    jobs = scrape_jobs(
-        site_name=["linkedin"],
-        search_term=f"{config['company']} {kw}",
-        location=config["location"],
-        results_wanted=15,
-        hours_old=config["past_hours"]
-    )
-    if not jobs.empty:
-        # Filter out jobs already in our history file using the Job URL as a unique ID
-        new_jobs = jobs[~jobs['job_url'].astype(str).isin(sent_ids)]
-        if not new_jobs.empty:
-            all_jobs.append(new_jobs)
+# 3. Scrape for Each Company
+all_new_jobs = []
+
+for company in config["companies"]:
+    print(f"Searching for jobs at {company}...")
+    for kw in config["keywords"]:
+        try:
+            jobs = scrape_jobs(
+                site_name=["linkedin"],
+                search_term=f"{company} {kw}",
+                location=config["location"],
+                results_wanted=10,
+                hours_old=config["past_hours"]
+            )
+            
+            if not jobs.empty:
+                # Filter out already sent jobs
+                new_jobs = jobs[~jobs['job_url'].astype(str).isin(sent_ids)]
+                if not new_jobs.empty:
+                    all_new_jobs.append(new_jobs)
+        except Exception as e:
+            print(f"Error searching for {company} {kw}: {e}")
 
 # 4. Process and Save History
-if all_jobs:
-    import pandas as pd
-    df = pd.concat(all_jobs).drop_duplicates(subset=['job_url'])
+if all_new_jobs:
+    df = pd.concat(all_new_jobs).drop_duplicates(subset=['job_url'])
     
-    report = f"🔍 **New Google Openings ({len(df)})**\n---\n"
+    # Sort by company for a cleaner report
+    df = df.sort_values(by='company')
+    
+    report = f"🚀 **MAANG/Big Tech Hiring Report ({len(df)})**\n"
+    report += "---" + "\n"
+    
     new_history = []
-
     for _, row in df.iterrows():
-        report += f"• [{row['title']}]({row['job_url']}) | {row['location']}\n"
+        # Format: Company | Title | Link
+        line = f"• **{row['company']}**: [{row['title']}]({row['job_url']})\n"
+        
+        if len(report) + len(line) > 4000:
+            send_telegram(report)
+            report = ""
+        report += line
         new_history.append(row['job_url'])
 
-    send_telegram(report)
+    if report:
+        send_telegram(report)
 
-    # Append new IDs to the history file
+    # Update history file
     with open(HISTORY_FILE, "a") as f:
         for job_id in new_history:
             f.write(f"{job_id}\n")
 else:
-    print("No unique new jobs found.")
+    print("No new unique jobs found for Google, Microsoft, or Apple.")
