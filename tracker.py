@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 from jobspy import scrape_jobs
 
-# 1. Load Sent History
+# 1. Setup History (Memory)
 HISTORY_FILE = "sent_jobs.txt"
 if os.path.exists(HISTORY_FILE):
     with open(HISTORY_FILE, "r") as f:
@@ -28,44 +28,48 @@ def send_telegram(message):
 with open("config.yml", "r") as f:
     config = yaml.safe_load(f)["search"]
 
-# 3. Scrape for Each Company
+TARGET_COMPANIES = config["companies"]
 all_new_jobs = []
 
-for company in config["companies"]:
-    print(f"Searching for jobs at {company}...")
+# 3. Scrape and Hard Filter
+for company in TARGET_COMPANIES:
     for kw in config["keywords"]:
         try:
+            # Search for the specific company + keyword
             jobs = scrape_jobs(
                 site_name=["linkedin"],
                 search_term=f"{company} {kw}",
                 location=config["location"],
-                results_wanted=10,
+                results_wanted=15,
                 hours_old=config["past_hours"]
             )
             
             if not jobs.empty:
-                # Filter out already sent jobs
-                new_jobs = jobs[~jobs['job_url'].astype(str).isin(sent_ids)]
+                # HARD FILTER: Only keep results where the 'company' column matches our list
+                # This removes "Associative", "Infosys", etc.
+                mask = jobs['company'].str.contains('|'.join(TARGET_COMPANIES), case=False, na=False)
+                filtered_jobs = jobs[mask]
+                
+                # MEMORY FILTER: Remove jobs already in sent_jobs.txt
+                new_jobs = filtered_jobs[~filtered_jobs['job_url'].astype(str).isin(sent_ids)]
+                
                 if not new_jobs.empty:
                     all_new_jobs.append(new_jobs)
         except Exception as e:
-            print(f"Error searching for {company} {kw}: {e}")
+            print(f"Error scraping {company}: {e}")
 
-# 4. Process and Save History
+# 4. Generate Report and Update History
 if all_new_jobs:
     df = pd.concat(all_new_jobs).drop_duplicates(subset=['job_url'])
-    
-    # Sort by company for a cleaner report
     df = df.sort_values(by='company')
     
-    report = f"🚀 **MAANG/Big Tech Hiring Report ({len(df)})**\n"
-    report += "---" + "\n"
-    
+    report = f"🚀 **Target Hiring Report ({len(df)} New)**\n---\n"
     new_history = []
+
     for _, row in df.iterrows():
-        # Format: Company | Title | Link
         line = f"• **{row['company']}**: [{row['title']}]({row['job_url']})\n"
         
+        # Split message if it exceeds Telegram's limit
         if len(report) + len(line) > 4000:
             send_telegram(report)
             report = ""
@@ -75,9 +79,9 @@ if all_new_jobs:
     if report:
         send_telegram(report)
 
-    # Update history file
+    # Write new IDs to history file
     with open(HISTORY_FILE, "a") as f:
         for job_id in new_history:
             f.write(f"{job_id}\n")
 else:
-    print("No new unique jobs found for Google, Microsoft, or Apple.")
+    print("No new jobs found for target companies.")
