@@ -7,7 +7,6 @@ on:
 jobs:
   run-tracker:
     runs-on: ubuntu-latest
-    # Added permissions to allow the bot to push the 'sent_jobs.txt' update
     permissions:
       contents: write 
 
@@ -34,12 +33,10 @@ jobs:
 
       - name: Save History & Push Changes
         run: |
-          git config --global user.name "Z E U S Bot"
+          git config --global user.name "Z E U S"
           git config --global user.email "iamdrzeus14@gmail.com"
           
-          # Check if sent_jobs.txt exists and has changes
           if [ -f sent_jobs.txt ]; then
             git add sent_jobs.txt
-            # Only commit if there are actually new jobs added to the file
             git diff --quiet && git diff --staged --quiet || (git commit -m "Update job history [skip ci]" && git push)
           fi
