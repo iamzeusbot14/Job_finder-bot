@@ -1,5 +1,5 @@
 search:
-  company: "Google"
-  keywords: ["Android Developer", "Software Engineer"]
+  companies: ["Google", "Microsoft", "Apple"]
+  keywords: ["Android Developer", "Software Engineer", "Kotlin"]
   location: "India"
   past_hours: 24
